@@ -45,22 +45,38 @@ python3 -m http.server 8000
 # abrir http://localhost:8000
 ```
 
-### Timestamps mais finos (opcional)
+### ⚠ Cabeçalhos COOP/COEP — não é opcional
 
-Por omissão o browser arredonda `performance.now()` a 100 µs por causa das
-mitigações de Spectre. Para as medições que vai fazer é mais do que suficiente —
-os sinais que interessam andam abaixo dos 30 Hz. Se mesmo assim quiser a
-resolução máxima, sirva a página com isolamento cross-origin:
+Medido numa sessão real de 207 segundos, servida sem estes cabeçalhos:
+
+| | Resultado |
+|---|---|
+| Amostras recolhidas | 11 760 |
+| Instantes **distintos** | 7 136 |
+| Amostras que partilham timestamp com outra | **39 %** |
+| Resolução do relógio | 1 ms (inteiros) |
+| Energia na banda de tremor 8–12 Hz | 6 % — indistinguível do ruído |
+
+O browser arredonda `performance.now()` a 1 ms por omissão, por causa das
+mitigações de Spectre. As amostras coalescidas chegam todas no mesmo frame e
+colapsam para o mesmo instante. Resultado: a **ordem** das amostras preserva-se
+(está no 4.º valor de cada amostra), mas o **tempo real entre elas perde-se** —
+e com ele a análise de frequências que sustenta a hipótese do tremor.
+
+Com os cabeçalhos, `crossOriginIsolated` passa a `true` e a resolução sobe para
+microssegundos.
 
 ```
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-O ficheiro exportado regista a resolução real que foi obtida, em
-`ambiente.resolucaoTimer`.
+**O GitHub Pages não permite cabeçalhos personalizados.** Para este projeto não
+serve. Use Netlify ou Cloudflare Pages, que leem o ficheiro `_headers` já
+incluído aqui — arrastar a pasta para netlify.com chega.
 
----
+Cada ficheiro de sessão regista em `ambiente.crossOriginIsolated` se conseguiu,
+e o `ler_sessao.py` marca as sessões em que não conseguiu.
 
 ## O que a sessão faz
 
@@ -85,6 +101,46 @@ const CFG = { calibAlvos: 20, jogoSegundos: 180, ... };
 
 ---
 
+## Gamificação
+
+O bloco livre está partido em **duas rondas de 90 segundos** com uma pausa e um
+resumo pelo meio. Mesmo tempo total, mas muito menos monótono.
+
+- **Pontuação** visível no HUD: alvos pequenos valem mais, alvos em movimento
+  valem 1,35×, e rapidez multiplica até 3×.
+- **Acertos seguidos** dão multiplicador até ×2,0. Falhar corta a sequência.
+- **Feedback** em cada acerto: anel a expandir no alvo, pontos a subir, mira a
+  mudar de cor. Nada disto mexe na câmara — o traço da mira tem de ficar limpo
+  para a análise.
+- **Tabela de pontuações** no ecrã final, com alcunha opcional.
+
+### A alcunha nunca sai do browser
+
+A tabela vive em `localStorage`, só naquele computador. É útil quando testa
+várias pessoas no mesmo portátil: cada uma vê-se na lista e a seguinte quer
+bater a anterior.
+
+O ficheiro de dados guarda `desempenho.usouAlcunha: true/false` — **nunca a
+alcunha**. O teste automático verifica isso explicitamente: escreve um nome
+reconhecível, exporta o ficheiro e confirma que a string não aparece lá dentro.
+
+### O que isto custa em rigor
+
+A pontuação é uma variável experimental, não é decoração. Participantes
+motivados jogam de forma diferente de participantes entediados: mais depressa,
+com mais erros, a arriscar mais. Isso **está** nos dados e tem de ser dito na
+tese. Em contrapartida, um participante entediado ao minuto dois dá-lhe dados
+piores do que um empenhado.
+
+O ficheiro regista `eventos[0].gamificacao: true`, para que mais tarde consiga
+separar sessões recolhidas com e sem pontuação, se decidir testar o efeito.
+
+**Uma tabela partilhada entre participantes seria outra conversa.** Precisaria
+de servidor, voltaria a pôr-lhe responsabilidade de alojamento em cima, e
+sobretudo criaria incentivo para alguém usar assistência de mira para chegar ao
+topo — o que lhe contaminava a classe humana com amostras automatizadas mal
+rotuladas. A tabela local evita as três coisas.
+
 ## O ficheiro de dados
 
 Sai como `sessao_<código>.json.gz` (ou `.json` em browsers sem `CompressionStream`).
@@ -96,11 +152,12 @@ Uma sessão completa dá tipicamente 2 a 5 MB em JSON, cerca de 300 KB comprimid
   "participante": { "id": "...", "consentimento": {...}, "formulario": {...} },
   "ambiente": {
     "unadjustedMovement": true,   // ← confirme isto: ver nota abaixo
+    "crossOriginIsolated": true,  // ← e isto também
     "pointerRawUpdate": true,
     "resolucaoTimer": 0.1,        // granularidade real em ms
     "sensibilidade": 1.2, ...
   },
-  "mouse":  [[t_ms, dx, dy], ...],          // à taxa do dispositivo
+  "mouse":  [[t_ms, dx, dy, i], ...],       // i = ordem dentro da rajada do frame
   "teclas": [[t_ms, "KeyW", 1|0], ...],     // 1 = premida, 0 = largada
   "vista":  [[t_ms, yaw_rad, pitch_rad]],   // um por frame
   "eventos": [

@@ -57,7 +57,7 @@ function ok(cond, msg) {
 
   // encurta o bloco livre para o teste não demorar três minutos
   await pg.evaluate(() => { window.__S = null; });
-  await pg.evaluate(`CFG.jogoSegundos = 6;`).catch(() => {});
+  await pg.evaluate(`CFG.segundosPorRonda = 3; CFG.rondas = 1;`).catch(() => {});
 
   console.log("\n4. Sessão simulada");
   // varre o rato em arco e dispara, repetidamente
@@ -109,7 +109,8 @@ function ok(cond, msg) {
   ok(f.temId, "tem identificador anónimo de 16 hex");
   ok(f.temConsent, "regista o momento do consentimento");
   ok(f.formCompleto, "guarda o formulário completo");
-  ok(Array.isArray(f.amostra) && f.amostra.length === 3, "amostras do rato no formato [t,dx,dy]");
+  ok(Array.isArray(f.amostra) && f.amostra.length === 4,
+     "amostras do rato no formato [t,dx,dy,ordem-na-rajada]");
   ok(Array.isArray(f.tecla) && f.tecla.length === 3, "teclas no formato [t,code,estado]");
   ok(f.temDisparoComErro, "cada disparo traz o erro angular");
   ok(f.temAlvoComGroundTruth, "cada alvo traz a posição e o erro inicial");
@@ -132,11 +133,53 @@ function ok(cond, msg) {
      "só regista teclas da lista branca: " + priv.codigosTeclas.join(", "));
   ok(priv.semTexto, "não existe nenhum campo de texto livre nos eventos");
 
-  console.log("\n7. Ecrã final");
+  console.log("\n7. Gamificação e privacidade da alcunha");
+  const g = await pg.evaluate(() => {
+    // pontua dois acertos seguidos e confirma o multiplicador
+    S.fase = "jogo"; S.ronda = 1; S.pontos = 0; S.sequencia = 0; S.alvos = [];
+    S.cam = { x:0, y:1.65, z:0, yaw:0, pitch:0 };
+    const pontosPorAcerto = [];
+    for (let i = 0; i < 4; i++) {
+      criaAlvo({ x:0, y:1.65, z:-12, r:0.42 });
+      const antes = S.pontos;
+      dispara(performance.now());
+      pontosPorAcerto.push(S.pontos - antes);
+    }
+    const comSequencia = S.pontos, seqAlta = S.sequencia;
+    // uma falha corta a sequência
+    S.alvos = []; S.cam.yaw = Math.PI; dispara(performance.now());
+    const seqDepoisDeFalhar = S.sequencia;
+    // alcunha vai para a tabela local mas nunca para o ficheiro
+    document.getElementById("f-alcunha").value = "SuperNome123";
+    document.getElementById("b-tabela").click();
+    const d = montaFicheiro();
+    return {
+      pontosPorAcerto, comSequencia, seqAlta, seqDepoisDeFalhar,
+      temDesempenho: !!d.desempenho,
+      pontosNoFicheiro: d.desempenho.pontos,
+      usouAlcunha: d.desempenho.usouAlcunha,
+      alcunhaVazou: JSON.stringify(d).includes("SuperNome123"),
+      tabelaLocal: JSON.parse(localStorage.getItem("aim-tabela-v1") || "[]").length,
+      efeitosCriados: S.efeitos.length > 0,
+    };
+  });
+  console.log("   " + JSON.stringify(g));
+  ok(g.comSequencia > 0, `pontuação acumula (${g.comSequencia} pontos)`);
+  ok(g.pontosPorAcerto[3] > g.pontosPorAcerto[0],
+     `acertos seguidos valem mais (${g.pontosPorAcerto[0]} -> ${g.pontosPorAcerto[3]})`);
+  ok(g.seqAlta === 4, "conta a sequência de acertos");
+  ok(g.seqDepoisDeFalhar === 0, "falhar corta a sequência");
+  ok(g.temDesempenho && g.pontosNoFicheiro > 0, "o ficheiro regista a pontuação");
+  ok(g.usouAlcunha === true, "o ficheiro regista QUE houve alcunha");
+  ok(g.alcunhaVazou === false, "a alcunha NÃO aparece em lado nenhum do ficheiro");
+  ok(g.tabelaLocal > 0, "a tabela fica guardada em localStorage");
+  ok(g.efeitosCriados, "gera feedback visual nos acertos");
+
+  console.log("\n8. Ecrã final");
   ok(await pg.isVisible("#t-fim"), "mostra o ecrã de fim");
   ok((await pg.textContent("#resumo")).includes("Código anónimo"), "mostra o código ao participante");
 
-  console.log("\n8. Erros de consola");
+  console.log("\n9. Erros de consola");
   ok(erros.length === 0, erros.length ? "erros: " + erros.join(" | ") : "nenhum erro de JavaScript");
 
   await pg.screenshot({ path: "shot-jogo.png" });

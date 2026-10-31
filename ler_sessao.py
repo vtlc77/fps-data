@@ -33,13 +33,31 @@ def main(caminho):
     print(f" {marca}unadjustedMovement: {ua}"
           + ("" if ua is True else "   <-- deltas contaminados pela aceleração do SO"))
     print(f"    pointerRawUpdate:   {amb['pointerRawUpdate']}")
+
+    coi = amb.get("crossOriginIsolated")
+    marca = "OK " if coi is True else "!! "
+    print(f" {marca}crossOriginIsolated: {coi}"
+          + ("" if coi is True else "   <-- relógio arredondado; ver cabeçalhos COOP/COEP"))
     print(f"    resolução do timer: {amb['resolucaoTimer']} ms")
     print(f"    sensibilidade:      {amb['sensibilidade']}")
 
     if mouse:
         dur = (mouse[-1][0] - mouse[0][0]) / 1000
         taxa = len(mouse) / dur if dur else 0
-        print(f"    amostras do rato:   {len(mouse):,} em {dur:.0f} s  ({taxa:.0f} Hz efetivos)")
+        print(f"    amostras do rato:   {len(mouse):,} em {dur:.0f} s  ({taxa:.0f} Hz médios)")
+
+        # quantos instantes distintos existem, e que fração das amostras os partilha
+        ts = [m[0] for m in mouse]
+        distintos = len(set(ts))
+        colididas = 1 - distintos / len(ts)
+        inteiros = all(float(x).is_integer() for x in ts[:2000])
+        print(f"    instantes distintos: {distintos:,}  "
+              f"({colididas*100:.0f} % das amostras partilham timestamp)")
+        if inteiros:
+            print("    !! timestamps são inteiros de ms: o relógio foi arredondado")
+        if colididas > 0.15:
+            print("    !! muitas amostras no mesmo instante: a ordem dentro da rajada")
+            print("       está no 4.º valor, mas o tempo real entre elas perdeu-se")
         if taxa < 100:
             print("    !! taxa baixa: confirme o rato e o browser do participante")
 
@@ -71,6 +89,8 @@ def main(caminho):
     problemas = []
     if ua is not True:
         problemas.append("aceleração do SO não foi desligada")
+    if amb.get("crossOriginIsolated") is not True:
+        problemas.append("relógio arredondado: timing do rato degradado")
     if mouse and (mouse[-1][0] - mouse[0][0]) / 1000 < 120:
         problemas.append("sessão demasiado curta")
     if len(acertos) < 15:

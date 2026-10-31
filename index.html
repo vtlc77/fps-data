@@ -62,11 +62,29 @@
   .aviso{background:#2A1E0A;border:1px solid #5A4414;color:#F0CE7E;
          border-radius:8px;padding:11px 14px;font-size:13px;margin:14px 0}
   code{background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:13px}
+  .placar{background:linear-gradient(180deg,#17222C,#141B23);border:1px solid var(--line);
+          border-radius:14px;padding:22px 24px;margin:16px 0 18px;text-align:center}
+  .placar .big{font-size:52px;font-weight:800;line-height:1;letter-spacing:-1px;
+               color:#5AD2AA;font-variant-numeric:tabular-nums}
+  .placar .biglab{font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+                  color:var(--mut);margin-top:4px}
+  .placar .mini{font-size:13.5px;color:var(--ink2);margin-top:10px}
+  .placar .recorde{display:inline-block;margin-top:12px;background:#17382E;color:#7FE3BC;
+                   border-radius:99px;padding:4px 14px;font-size:12.5px;font-weight:600}
+  table.tab{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.tab td{padding:5px 6px;border-bottom:1px solid var(--line);color:var(--ink2)}
+  table.tab tr:last-child td{border-bottom:0}
+  table.tab td:first-child{width:24px;color:var(--mut)}
+  table.tab .nm{color:var(--ink)}
+  table.tab .pt{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  table.tab tr.eu td{color:#7FE3BC}
 
   /* ---------------------------------------------------------- jogo */
   #jogo{display:none;position:absolute;inset:0;background:#0B0F14}
   #jogo.on{display:block}
   canvas{display:block;width:100%;height:100%;cursor:none}
+  .hudv.pulsa{animation:pulso .22s ease-out}
+  @keyframes pulso{0%{transform:scale(1.28);color:#5AD2AA}100%{transform:scale(1)}}
   #hud{position:absolute;top:14px;left:0;right:0;pointer-events:none;
        display:flex;justify-content:center;gap:34px;font-variant-numeric:tabular-nums}
   .hudi{text-align:center}
@@ -243,8 +261,10 @@
         <li><b>Parte 1 — calibração (cerca de 1 minuto).</b> Fica parado. Aparece um alvo de
           cada vez, sempre nas mesmas posições para todos os participantes. Acerte e passa
           ao seguinte.</li>
-        <li><b>Parte 2 — tarefa livre (3 minutos).</b> Pode andar. Vários alvos ao mesmo
-          tempo, uns parados e outros em movimento, alguns atrás de si.</li>
+        <li><b>Parte 2 — duas rondas de 90 segundos.</b> Pode andar. Vários alvos ao mesmo
+          tempo, uns parados e outros em movimento, alguns atrás de si. Há pontuação:
+          alvos pequenos, alvos em movimento e acertos seguidos valem mais. Entre as
+          rondas há uma pausa.</li>
       </ul>
     </div>
 
@@ -288,7 +308,8 @@
   <canvas id="cv"></canvas>
   <div id="hud">
     <div class="hudi"><div class="hudv" id="h-fase">—</div><div class="hudl">Parte</div></div>
-    <div class="hudi"><div class="hudv" id="h-alvos">0</div><div class="hudl">Alvos</div></div>
+    <div class="hudi"><div class="hudv ponto" id="h-pontos">0</div><div class="hudl">Pontos</div></div>
+    <div class="hudi"><div class="hudv" id="h-seq">—</div><div class="hudl">Seguidos</div></div>
     <div class="hudi"><div class="hudv" id="h-acerto">—</div><div class="hudl">Precisão</div></div>
     <div class="hudi"><div class="hudv" id="h-tempo">—</div><div class="hudl">Tempo</div></div>
   </div>
@@ -300,10 +321,26 @@
   <div class="caixa">
     <span class="tag">Passo 4 de 4</span>
     <h1>Terminou. Obrigado.</h1>
+    <div class="placar" id="pontuacao"></div>
+
     <p class="lead">Falta um passo: descarregar o ficheiro e enviá-lo. Até o fazer, os dados
       existem apenas neste computador.</p>
 
-    <div class="card" id="resumo"></div>
+    <div class="grelha">
+      <div class="card" id="resumo"></div>
+      <div class="card">
+        <h4>Tabela de pontuações</h4>
+        <p class="nota" style="margin:0 0 10px">Fica guardada <b>só neste computador</b>.
+          A alcunha nunca entra no ficheiro de dados nem chega ao investigador: serve
+          apenas para se encontrar nesta lista.</p>
+        <div class="campo" style="display:flex;gap:8px;align-items:flex-end">
+          <div style="flex:1"><label for="f-alcunha">Alcunha (opcional)</label>
+            <input type="text" id="f-alcunha" maxlength="16" placeholder="como quiser"></div>
+          <button class="sec" id="b-tabela" style="padding:9px 14px">Entrar na tabela</button>
+        </div>
+        <div id="tabela"></div>
+      </div>
+    </div>
 
     <div class="barra">
       <button id="b-desc">Descarregar o ficheiro</button>
@@ -333,7 +370,9 @@
 
 const CFG = {
   calibAlvos: 20,          // nº de alvos do bloco de calibração
-  jogoSegundos: 180,       // duração do bloco livre
+  rondas: 2,               // o bloco livre é partido em rondas, com pausa e resumo
+  segundosPorRonda: 90,
+  jogoSegundos: 180,       // mantido por compatibilidade; ver segundosPorRonda
   fovGraus: 90,
   raioAlvoPadrao: 0.42,    // metros
   distCalib: 14,           // distância fixa dos alvos de calibração
@@ -358,8 +397,12 @@ const S = {
   alvos: [], proxId: 1,
   calibIdx: 0, calibSeq: [],
   disparos: 0, acertos: 0,
+  pontos: 0, sequencia: 0, melhorSequencia: 0,
+  ronda: 0, rondas: [],          // resumo de cada ronda
+  efeitos: [],                   // feedback visual transitório
+  alcunha: null,                 // só localStorage, nunca no ficheiro de dados
   tFaseInicio: 0, tFim: 0,
-  pausado: false, correndo: false,
+  pausado: false, correndo: false, entreRondas: false, rondaInicio: null,
 };
 
 const TECLAS_PERMITIDAS = new Set(
@@ -448,11 +491,13 @@ function redimensiona() {
 window.addEventListener("resize", () => { if (S.correndo) redimensiona(); });
 
 /* ------------------------------------------------- captura de rato e teclado */
-function registaAmostra(e) {
+function registaAmostra(e, idx) {
   // movementX/Y já vêm sem aceleração do SO quando unadjustedMovement foi aceite
   const dx = e.movementX || 0, dy = e.movementY || 0;
   if (dx === 0 && dy === 0) return;
-  S.mouse.push([+e.timeStamp.toFixed(3), dx, dy]);
+  // o 4.º valor é a posição dentro da rajada do frame: preserva a ordem mesmo
+  // quando os timestamps colidem por falta de resolução do relógio
+  S.mouse.push([+e.timeStamp.toFixed(3), dx, dy, idx]);
   const k = S.sens * 0.0022;
   S.cam.yaw += dx * k;
   S.cam.pitch -= dy * k;
@@ -467,9 +512,9 @@ function aoMover(e) {
   // getCoalescedEvents devolve as amostras intermédias à taxa do dispositivo
   if (typeof e.getCoalescedEvents === "function") {
     const cs = e.getCoalescedEvents();
-    if (cs && cs.length) { for (const c of cs) registaAmostra(c); return; }
+    if (cs && cs.length) { for (let i = 0; i < cs.length; i++) registaAmostra(cs[i], i); return; }
   }
-  registaAmostra(e);
+  registaAmostra(e, 0);
 }
 
 const temRaw = "onpointerrawupdate" in window;
@@ -518,7 +563,7 @@ async function pedeLock() {
 }
 document.addEventListener("pointerlockchange", () => {
   const preso = document.pointerLockElement === cv;
-  if (!preso && S.correndo && S.fase !== "fim") {
+  if (!preso && S.correndo && S.fase !== "fim" && !S.entreRondas) {
     S.pausado = true;
     ev("pausa", { motivo: "pointerlock perdido" });
     caixaMsg("Em pausa", "Clique no ecrã para continuar.");
@@ -526,7 +571,7 @@ document.addEventListener("pointerlockchange", () => {
     S.pausado = false; ev("retoma"); caixaMsg(null);
   }
 });
-cv.addEventListener("click", () => { if (S.pausado) pedeLock(); });
+cv.addEventListener("click", () => { if (S.pausado && !S.entreRondas) pedeLock(); });
 
 /* ------------------------------------------------------------- geometria 3D */
 function baseCam() {
@@ -626,6 +671,27 @@ function alvoAleatorio() {
 }
 
 /* ----------------------------------------------------------------- disparo */
+/** Pontuação: recompensa alvos pequenos e rapidez, e premeia sequências.
+ *  Nada disto mexe na câmara — o traço da mira tem de ficar limpo. */
+function pontuaAcerto(alvo, t) {
+  const dificuldade = CFG.raioAlvoPadrao / alvo.r;            // alvo pequeno vale mais
+  const tempo = t - alvo.nascido;
+  const rapidez = Math.max(0.5, Math.min(3, 1400 / Math.max(tempo, 120)));
+  const movel = (alvo.vx || alvo.vz) ? 1.35 : 1;
+  S.sequencia++;
+  S.melhorSequencia = Math.max(S.melhorSequencia, S.sequencia);
+  const mult = 1 + Math.min(S.sequencia, 10) * 0.1;
+  const p = Math.round(100 * dificuldade * rapidez * movel * mult);
+  S.pontos += p;
+  return { pontos: p, mult };
+}
+
+function efeito(tipo, alvo, texto) {
+  S.efeitos.push({ tipo, t0: agora(), x: alvo.x, y: alvo.y, z: alvo.z,
+                   r: alvo.r, texto: texto || null });
+  if (S.efeitos.length > 40) S.efeitos.shift();
+}
+
 function dispara(t) {
   const B = baseCam();
   S.disparos++;
@@ -640,16 +706,20 @@ function dispara(t) {
   }
   if (melhor) {
     S.acertos++;
+    const sc = S.fase === "jogo" ? pontuaAcerto(melhor, t) : { pontos: 0, mult: 1 };
+    efeito("acerto", melhor, sc.pontos ? "+" + sc.pontos : null);
     ev("disparo", { acertou: true, alvo: melhor.id,
       erroGraus: +melhorErro.toFixed(4),
       tempoDesdeAparecer: +(t - melhor.nascido).toFixed(3),
       tempoDesdePrimeiroMov: melhor.primeiroMov == null ? null
         : +(t - melhor.primeiroMov).toFixed(3),
-      fase: S.fase });
+      pontos: sc.pontos, sequencia: S.sequencia, fase: S.fase, ronda: S.ronda });
     S.alvos = S.alvos.filter(a => a !== melhor);
     if (S.fase === "calib") proximoCalib(); else alvoAleatorio();
   } else {
-    ev("disparo", { acertou: false, fase: S.fase,
+    if (S.fase === "jogo") S.sequencia = 0;
+    S.efeitos.push({ tipo: "falha", t0: agora() });
+    ev("disparo", { acertou: false, fase: S.fase, ronda: S.ronda,
       erroGraus: Number.isFinite(melhorErro) ? +melhorErro.toFixed(4) : null });
   }
   atualizaHud();
@@ -728,7 +798,34 @@ function desenha(B) {
     ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fill();
   }
 
+  desenhaEfeitos(B);
   desenhaMira();
+}
+
+/** Feedback de acerto e falha. Nunca mexe na câmara: o traço tem de ficar limpo. */
+function desenhaEfeitos(B) {
+  const t = agora(), DUR = 620;
+  S.efeitos = S.efeitos.filter(f => t - f.t0 < DUR);
+  for (const f of S.efeitos) {
+    const k = (t - f.t0) / DUR;                 // 0 -> 1
+    if (f.tipo === "falha") continue;
+    const p = projetaPonto({ x: f.x, y: f.y, z: f.z }, B);
+    if (!p) continue;
+    const base = FOCAL * f.r / Math.max(0.5, Math.hypot(f.x - S.cam.x, f.y - S.cam.y, f.z - S.cam.z));
+    // anel a expandir
+    ctx.beginPath();
+    ctx.arc(p.sx, p.sy, base * (1 + k * 2.2), 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(90,210,170," + (0.85 * (1 - k)).toFixed(3) + ")";
+    ctx.lineWidth = 2.5 * DPR * (1 - k * 0.6);
+    ctx.stroke();
+    // pontos a subir
+    if (f.texto) {
+      ctx.font = (600) + " " + (17 * DPR) + "px system-ui,-apple-system,sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(120,235,190," + (1 - k * k).toFixed(3) + ")";
+      ctx.fillText(f.texto, p.sx, p.sy - base - 10 * DPR - k * 34 * DPR);
+    }
+  }
 }
 
 /** Grelha no chão: é o que dá noção de deslocamento quando o jogador anda. */
@@ -766,10 +863,15 @@ function linha3D(p0, p1, B) {
 }
 
 function desenhaMira() {
-  const cx = LARG / 2, cy = ALT / 2, b = 10 * DPR, g = 3.5 * DPR;
+  const t = agora();
+  const falhou = S.efeitos.some(f => f.tipo === "falha" && t - f.t0 < 180);
+  const acertou = S.efeitos.some(f => f.tipo === "acerto" && t - f.t0 < 180);
+  const cx = LARG / 2, cy = ALT / 2;
+  const b = (acertou ? 13 : 10) * DPR, g = 3.5 * DPR;
   ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.lineWidth = 3.4 * DPR;
   tracaMira(cx, cy, b, g);
-  ctx.strokeStyle = "#F4F7FA"; ctx.lineWidth = 1.6 * DPR;
+  ctx.strokeStyle = falhou ? "#E04E39" : acertou ? "#5AD2AA" : "#F4F7FA";
+  ctx.lineWidth = 1.6 * DPR;
   tracaMira(cx, cy, b, g);
 }
 function tracaMira(cx, cy, b, g) {
@@ -795,7 +897,10 @@ async function iniciar() {
   S.correndo = true;
   await pedeLock();
   ev("sessao_inicio", { unadjustedMovement: S.unadjusted, sens: S.sens,
-                        rawUpdate: temRaw, dpr: DPR, larg: LARG, alt: ALT });
+                        rawUpdate: temRaw, dpr: DPR, larg: LARG, alt: ALT,
+                        crossOriginIsolated: (typeof crossOriginIsolated !== "undefined")
+                          ? crossOriginIsolated : null,
+                        gamificacao: true });
   iniciaBlocoCalib();
   tAnterior = agora();
   requestAnimationFrame(frame);
@@ -813,37 +918,83 @@ function iniciaBlocoCalib() {
 
 function iniciaBlocoJogo() {
   ev("bloco_fim", { bloco: "calibracao" });
-  S.fase = "jogo"; S.tFaseInicio = agora(); S.alvos = [];
-  ev("bloco_inicio", { bloco: "livre", segundos: CFG.jogoSegundos });
-  caixaMsg("Parte 2 — tarefa livre",
-    "Agora pode andar com W A S D. Vários alvos ao mesmo tempo, alguns atrás de si.", 3000);
+  S.fase = "jogo"; S.ronda = 0;
+  iniciaRonda();
+}
+
+function iniciaRonda() {
+  S.ronda++;
+  S.tFaseInicio = agora(); S.alvos = []; S.sequencia = 0;
+  S.rondaInicio = { pontos: S.pontos, acertos: S.acertos, disparos: S.disparos };
+  ev("bloco_inicio", { bloco: "livre", ronda: S.ronda, segundos: CFG.segundosPorRonda });
+  caixaMsg("Ronda " + S.ronda + " de " + CFG.rondas,
+    S.ronda === 1
+      ? "Agora pode andar com W A S D. Acertos seguidos valem mais pontos."
+      : "Última ronda. Tente bater a pontuação anterior.", 2600);
   for (let i = 0; i < CFG.maxAlvosVivos; i++) alvoAleatorio();
   atualizaHud();
 }
 
+function fimDaRonda() {
+  const r = {
+    ronda: S.ronda,
+    pontos: S.pontos - S.rondaInicio.pontos,
+    acertos: S.acertos - S.rondaInicio.acertos,
+    disparos: S.disparos - S.rondaInicio.disparos,
+    melhorSequencia: S.melhorSequencia,
+  };
+  r.precisao = r.disparos ? Math.round(100 * r.acertos / r.disparos) : 0;
+  S.rondas.push(r);
+  ev("bloco_fim", { bloco: "livre", ronda: S.ronda, resumo: r });
+  S.alvos = [];
+
+  if (S.ronda >= CFG.rondas) { terminar(); return; }
+
+  S.pausado = true; S.entreRondas = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  caixaMsg("Fim da ronda " + r.ronda,
+    r.pontos.toLocaleString("pt-PT") + " pontos  ·  " + r.acertos + " alvos  ·  " +
+    r.precisao + " % de precisão\n\nClique para começar a ronda seguinte.");
+  const retomar = async () => {
+    cv.removeEventListener("click", retomar);
+    caixaMsg(null); S.pausado = false; S.entreRondas = false;
+    await pedeLock();
+    iniciaRonda();
+  };
+  cv.addEventListener("click", retomar);
+}
+
 function verificaTempo(t) {
-  if (S.fase !== "jogo") return;
-  const resta = CFG.jogoSegundos - (t - S.tFaseInicio) / 1000;
-  if (resta <= 0) terminar();
+  if (S.fase !== "jogo" || S.pausado) return;
+  const resta = CFG.segundosPorRonda - (t - S.tFaseInicio) / 1000;
+  if (resta <= 0) fimDaRonda();
 }
 
 let msgTimer = null;
 function caixaMsg(titulo, texto, ms) {
   clearTimeout(msgTimer);
   if (!titulo) { $("#msg").style.display = "none"; return; }
-  $("#msg-t").textContent = titulo; $("#msg-p").textContent = texto;
+  $("#msg-t").textContent = titulo;
+  $("#msg-p").innerHTML = String(texto).split("\n").map(l =>
+    l.replace(/[&<>]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[c]))).join("<br>");
   $("#msg").style.display = "flex";
   if (ms) msgTimer = setTimeout(() => { $("#msg").style.display = "none"; }, ms);
 }
 
 function atualizaHud() {
-  $("#h-fase").textContent = S.fase === "calib" ? "1" : S.fase === "jogo" ? "2" : "—";
-  $("#h-alvos").textContent = S.acertos;
+  $("#h-fase").textContent = S.fase === "calib" ? "Treino"
+    : S.fase === "jogo" ? ("Ronda " + S.ronda) : "—";
+  const el = $("#h-pontos");
+  el.textContent = S.pontos.toLocaleString("pt-PT");
+  el.classList.remove("pulsa"); void el.offsetWidth; el.classList.add("pulsa");
+  const q = $("#h-seq");
+  q.textContent = S.sequencia >= 2 ? ("×" + (1 + Math.min(S.sequencia, 10) * 0.1).toFixed(1)) : "—";
+  q.style.color = S.sequencia >= 5 ? "#5AD2AA" : "";
   $("#h-acerto").textContent = S.disparos ? Math.round(100 * S.acertos / S.disparos) + "%" : "—";
 }
 setInterval(() => {
   if (S.fase === "jogo" && !S.pausado && S.correndo) {
-    const r = Math.max(0, CFG.jogoSegundos - (agora() - S.tFaseInicio) / 1000);
+    const r = Math.max(0, CFG.segundosPorRonda - (agora() - S.tFaseInicio) / 1000);
     $("#h-tempo").textContent = Math.ceil(r) + "s";
   } else if (S.fase === "calib") {
     $("#h-tempo").textContent = (S.calibSeq.length - S.calibIdx + 1) + " alvos";
@@ -855,21 +1006,75 @@ let jaTerminou = false;
 function terminar() {
   if (jaTerminou) return;        // o temporizador e o fim do bloco podiam chamar os dois
   jaTerminou = true;
-  ev("bloco_fim", { bloco: "livre" });
   S.fase = "fim"; S.correndo = false; S.tFim = agora();
-  ev("sessao_fim", {});
+  ev("sessao_fim", { pontos: S.pontos, melhorSequencia: S.melhorSequencia,
+                     rondas: S.rondas });
   if (document.pointerLockElement) document.exitPointerLock();
+  caixaMsg(null);
   mostra("t-fim");
+  desenhaResumo();
+  montaTabela();
+}
+
+function desenhaResumo() {
   const dur = ((S.tFim - (S.eventos[0] ? S.eventos[0].t : 0)) / 1000 / 60).toFixed(1);
+  const prec = S.disparos ? Math.round(100 * S.acertos / S.disparos) : 0;
+  const amb = (typeof crossOriginIsolated !== "undefined" && crossOriginIsolated);
+  $("#pontuacao").innerHTML =
+    '<div class="big">' + S.pontos.toLocaleString("pt-PT") + '</div>' +
+    '<div class="biglab">pontos</div>' +
+    '<div class="mini">' + S.acertos + ' alvos · ' + prec + ' % de precisão · ' +
+    'melhor sequência ' + S.melhorSequencia + '</div>';
   $("#resumo").innerHTML =
     "<h4>Resumo da sua sessão</h4><ul>" +
     "<li>Código anónimo: <code>" + S.id + "</code></li>" +
     "<li>Duração: cerca de " + dur + " minutos</li>" +
-    "<li>Alvos acertados: " + S.acertos + " em " + S.disparos + " disparos</li>" +
+    S.rondas.map(r => "<li>Ronda " + r.ronda + ": " + r.pontos.toLocaleString("pt-PT") +
+      " pontos, " + r.acertos + " alvos, " + r.precisao + " % de precisão</li>").join("") +
     "<li>Amostras de movimento do rato: " + S.mouse.length.toLocaleString("pt-PT") + "</li>" +
     "<li>Eventos de teclado: " + S.teclas.length + "</li>" +
-    "</ul>";
+    "</ul><p class=\"nota\" style=\"margin:8px 0 0\">Qualidade técnica da captura: " +
+    "movimento sem aceleração do sistema " + (S.unadjusted === true ? "sim" : "não") +
+    " · relógio de alta resolução " + (amb ? "sim" : "não") + "</p>";
 }
+
+/* ---- Tabela de pontuações: vive só neste browser, nunca entra nos dados ---- */
+const LS = "aim-tabela-v1";
+function leTabela() {
+  try { return JSON.parse(localStorage.getItem(LS)) || []; } catch (e) { return []; }
+}
+function guardaTabela(t) {
+  try { localStorage.setItem(LS, JSON.stringify(t.slice(0, 20))); } catch (e) {}
+}
+function montaTabela() {
+  const tabela = leTabela();
+  const recorde = tabela.length ? Math.max(...tabela.map(x => x.pontos)) : 0;
+  if (S.pontos > recorde && tabela.length)
+    $("#pontuacao").insertAdjacentHTML("beforeend",
+      '<div class="recorde">Novo recorde neste computador</div>');
+  renderTabela();
+}
+function renderTabela() {
+  const tabela = leTabela().slice().sort((a, b) => b.pontos - a.pontos);
+  if (!tabela.length) { $("#tabela").innerHTML =
+    '<p class="nota" style="margin:0">Ainda não há pontuações guardadas neste computador.</p>'; return; }
+  $("#tabela").innerHTML = '<table class="tab"><tbody>' + tabela.slice(0, 10).map((x, i) =>
+    '<tr' + (x.id === S.id ? ' class="eu"' : '') + '><td>' + (i + 1) + '</td><td class="nm">' +
+    String(x.nome).replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c])) +
+    '</td><td class="pt">' + x.pontos.toLocaleString("pt-PT") + '</td></tr>').join("") +
+    '</tbody></table>';
+}
+$("#b-tabela").addEventListener("click", () => {
+  const nome = ($("#f-alcunha").value || "").trim().slice(0, 16) || "Anónimo";
+  const t = leTabela();
+  t.push({ nome, pontos: S.pontos, id: S.id, quando: Date.now() });
+  t.sort((a, b) => b.pontos - a.pontos);
+  guardaTabela(t);
+  S.alcunha = true;                       // só regista QUE houve alcunha, nunca qual
+  $("#b-tabela").textContent = "Adicionado";
+  $("#b-tabela").disabled = true;
+  renderTabela();
+});
 
 function montaFicheiro() {
   return {
@@ -884,12 +1089,16 @@ function montaFicheiro() {
               larguraFisica: screen.width, alturaFisica: screen.height },
       timeOrigin: performance.timeOrigin,
       resolucaoTimer: estimaResolucaoTimer(),
+      crossOriginIsolated: (typeof crossOriginIsolated !== "undefined") ? crossOriginIsolated : null,
       unadjustedMovement: S.unadjusted,
       pointerRawUpdate: temRaw,
       sensibilidade: S.sens,
       fuso: Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
     config: CFG,
+    desempenho: { pontos: S.pontos, acertos: S.acertos, disparos: S.disparos,
+                  melhorSequencia: S.melhorSequencia, rondas: S.rondas,
+                  usouAlcunha: !!S.alcunha },
     mouse: S.mouse,     // [t_ms, dx, dy]
     teclas: S.teclas,   // [t_ms, code, 1=baixo 0=cima]
     vista: S.vista,     // [t_ms, yaw_rad, pitch_rad]

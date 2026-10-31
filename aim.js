@@ -19,7 +19,7 @@ function ok(c,m){ console.log((c?"  [PASSA] ":"  [FALHA] ")+m); if(!c) process.e
 
   // encurta o bloco livre e aponta com precisão a cada alvo
   const r = await pg.evaluate(async () => {
-    CFG.jogoSegundos = 3;
+    CFG.segundosPorRonda = 3; CFG.rondas = 1;
     const apontaEDispara = () => {
       const a = S.alvos[0]; if (!a) return false;
       const v = { x:a.x-S.cam.x, y:a.y-S.cam.y, z:a.z-S.cam.z };
